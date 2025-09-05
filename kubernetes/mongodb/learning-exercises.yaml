@@ -1,0 +1,66 @@
+# Exercise 1: Add a new user
+apiVersion: v1
+kind: Secret
+metadata:
+  name: developer-password
+  namespace: default
+type: Opaque
+stringData:
+  password: "dev123"
+---
+# Exercise 2: MongoDB with custom configuration
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb-learning
+  namespace: default
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "6.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: admin
+      db: admin
+      passwordSecretRef:
+        name: admin-password-simple
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      scramCredentialsSecretName: admin-scram-learning
+    - name: developer
+      db: myapp
+      passwordSecretRef:
+        name: developer-password
+      roles:
+        - name: readWrite
+          db: myapp
+      scramCredentialsSecretName: dev-scram-learning
+  additionalMongodConfig:
+    storage.wiredTiger.engineConfig.journalCompressor: zlib
+    net.maxIncomingConnections: 200
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongod
+              resources:
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+            - name: mongodb-agent
+              resources:
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"

@@ -1,0 +1,32 @@
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongodb-simple
+  namespace: default
+spec:
+  members: 1
+  type: ReplicaSet
+  version: "6.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: admin
+      db: admin
+      passwordSecretRef:
+        name: admin-password-simple
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      scramCredentialsSecretName: admin-scram-simple
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: admin-password-simple
+  namespace: default
+type: Opaque
+stringData:
+  password: "admin123"
