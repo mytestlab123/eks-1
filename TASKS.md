@@ -44,6 +44,15 @@ Steps:
 | **Terraform changes** | The module already allows toggling NAT, endpoint visibility, and CIDRs; simply switch to `enable_nat_gateway = false`, `cluster_endpoint_public_access = false`, and a private-only `network_profile`. |
 | **Runbook notes** | - Ensure VPC endpoints for ECR, S3, STS, Secrets Manager, Systems Manager, and ACM are created. <br> - Set SSM patching to `RebootOption=NoReboot`. <br> - Document rollout failures (and Nexus proxy prep) directly in `README.md` or `TASKS.md` as they happen.
 
+## 3. Private-only “next session” plan
+
+| Item | Details |
+| --- | --- |
+| **Goal** | Track everything that needs to be executed the next time you (or Codex) rebuilds the stack in a private-only environment. |
+| **Scope** | Only documentation/runbook updates—no Terraform in this branch. We are prepping the plan so future sessions know the steps. |
+| **Steps** | 1. Update `AGENTS.md` with the Nexus registry credentials and Private VPC endpoint checklist so a Codex agent can re-run `just apply` safely. <br> 2. In `README.md`, describe that `just kubeconfig` should target the private endpoint and note the expected difference (no Internet access, only VPC endpoints). <br> 3. Keep `TASKS.md`’s private-only section as the canonical TODO list; we’ll revisit the actual Terraform toggles later. |
+| **Verification** | Confirm this branch contains new documentation (no infra), then merge it so future runs can reference `feat/private-only-plan` for the next task. |
+
 ## 3. Current assumptions
 
 - Dev account has permissions for new VPC subnets, NAT, and EKS clusters in `ap-southeast-1`.

@@ -27,4 +27,5 @@ Cost-optimized EKS + MongoDB Community Operator deployments in ap-southeast-1, n
 - `AGENTS.md`: operating notes, prefix/tag guidance, and destroy workflow for Codex.  
 - `TASKS.md`: runbook for the dev public VPC/EKS build, add-on sequencing, and the private-only/Nexus plan.
 
-Re-run the quick workflow when you next want the cluster. Record any new fallback steps (e.g., private registry pull secrets or SSM patch routines) in `TASKS.md` before shifting the configuration into production.
+Re-run the quick workflow when you next want the cluster. Record any new fallback steps (e.g., private registry pull secrets or SSM patch routines) in `TASKS.md` before shifting the configuration into production.  
+Next time, start from `feat/private-only-plan` so the codex-directed docs guide you through the private-only prep before touching Terraform.
