@@ -1,129 +1,156 @@
-# Optimized EKS MongoDB Setup with Lessons Learned
+locals {
+  resource_prefix = trimspace(length(trimspace(var.resource_prefix)) == 0 ? "cdx" : var.resource_prefix)
+  vpc_name        = "${local.resource_prefix}-${var.environment}-mongodb-vpc"
+  cluster_name    = "${var.environment}-mongodb-eks"
 
-module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+  shared_tags = merge(
+    {
+      Environment   = var.environment
+      Project       = "mongodb-demo"
+      ProvisionedBy = local.resource_prefix
+    },
+    var.resource_tags
+  )
 
-  name = "mongodb-demo-vpc"
-  cidr = "10.0.0.0/16"
-
-  azs             = ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
-
-  enable_nat_gateway = true
-  enable_vpn_gateway = false
-  single_nat_gateway = true
-
-  tags = {
-    "kubernetes.io/cluster/mongodb-demo-eks" = "shared"
-  }
+  is_private_network            = var.network_profile == "private-only"
+  cluster_public_access_enabled = !local.is_private_network
+  cluster_public_access_cidrs   = local.cluster_public_access_enabled ? var.cluster_endpoint_public_access_cidrs : []
 }
 
-# OIDC Provider for IRSA
-data "tls_certificate" "eks" {
-  url = module.eks.cluster_oidc_issuer_url
-}
+resource "aws_iam_policy" "node_ec2_describe_az" {
+  name        = "${local.resource_prefix}-${local.cluster_name}-node-ec2-describe-az"
+  description = "Allow node IAM role to describe Availability Zones for CSI driver health checks"
+  path        = "/${local.resource_prefix}/"
 
-resource "aws_iam_openid_connect_provider" "eks" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-  url             = module.eks.cluster_oidc_issuer_url
-
-  tags = {
-    Name = "mongodb-demo-eks-irsa"
-  }
-}
-
-# EBS CSI Driver IAM Role
-resource "aws_iam_role" "ebs_csi_driver" {
-  name = "AmazonEKS_EBS_CSI_DriverRole"
-
-  assume_role_policy = jsonencode({
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Federated = aws_iam_openid_connect_provider.eks.arn
-      }
-      Action = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = {
-          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
-          "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud" = "sts.amazonaws.com"
-        }
-      }
+      Action   = ["ec2:DescribeAvailabilityZones"]
+      Effect   = "Allow"
+      Resource = "*"
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
-  role       = aws_iam_role.ebs_csi_driver.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+
+  name = local.vpc_name
+  cidr = var.vpc_cidr
+
+  azs             = var.availability_zones
+  private_subnets = var.private_subnets
+  public_subnets  = var.public_subnets
+
+  enable_nat_gateway = var.enable_nat_gateway
+  enable_vpn_gateway = false
+  single_nat_gateway = true
+
+  tags = merge(local.shared_tags, { Name = local.vpc_name })
 }
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
 
-  cluster_name    = "mongodb-demo-eks"
-  cluster_version = "1.28"
+  cluster_name    = local.cluster_name
+  cluster_version = var.cluster_version
 
-  # LESSON LEARNED: Enable public access from start
-  cluster_endpoint_private_access = false
-  cluster_endpoint_public_access  = true
-  cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+  cluster_endpoint_private_access      = true
+  cluster_endpoint_public_access       = local.cluster_public_access_enabled
+  cluster_endpoint_public_access_cidrs = local.cluster_public_access_cidrs
 
   vpc_id                   = module.vpc.vpc_id
   subnet_ids               = module.vpc.private_subnets
   control_plane_subnet_ids = module.vpc.private_subnets
 
-  # Enable access entries for EKS access management
   enable_cluster_creator_admin_permissions = true
-  
-  # LESSON LEARNED: Install EBS CSI driver with proper IRSA
-  cluster_addons = {
-    aws-ebs-csi-driver = {
-      service_account_role_arn = aws_iam_role.ebs_csi_driver.arn
-    }
-  }
 
   eks_managed_node_groups = {
     mongodb_nodes = {
-      instance_types = ["t3.small"]
-      capacity_type  = "SPOT"
-      
-      min_size     = 2
-      max_size     = 2
-      desired_size = 2
+      instance_types = var.node_group_instance_types
+      capacity_type  = var.node_group_capacity_type
 
-      # LESSON LEARNED: Minimal disk for cost optimization
-      disk_size = 20
+      min_size     = var.node_group_min_size
+      max_size     = var.node_group_max_size
+      desired_size = var.node_group_desired_size
 
-      labels = {
-        role = "mongodb"
+      disk_size = var.node_group_disk_size
+
+      labels = var.node_group_labels
+
+      iam_role_additional_policies = {
+        "ec2-describe-az" = aws_iam_policy.node_ec2_describe_az.arn
+        "ec2-volume"      = aws_iam_policy.node_ec2_volume.arn
       }
     }
   }
 
-  tags = {
-    Environment = "learning"
-    Project     = "mongodb-demo"
-  }
+  tags = merge(local.shared_tags, { Name = local.cluster_name })
 }
 
-# Outputs
+resource "aws_iam_policy" "node_ec2_volume" {
+  name        = "${local.resource_prefix}-${local.cluster_name}-node-ec2-volume"
+  description = "Allow nodes to create and manage EC2 volumes for MongoDB PVs"
+  path        = "/${local.resource_prefix}/"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ec2:CreateVolume",
+          "ec2:DeleteVolume",
+          "ec2:AttachVolume",
+          "ec2:DetachVolume",
+          "ec2:ModifyVolume",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeVolumeStatus",
+          "ec2:DescribeInstanceAttribute",
+        "ec2:DescribeInstanceStatus",
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+
+output "environment" {
+  description = "Deployment environment"
+  value       = var.environment
+}
+
+output "network_profile" {
+  description = "Network posture"
+  value       = var.network_profile
+}
+
 output "cluster_name" {
   description = "Kubernetes Cluster Name"
   value       = module.eks.cluster_name
 }
 
 output "cluster_endpoint" {
-  description = "Endpoint for EKS control plane"
+  description = "Control plane endpoint URL"
   value       = module.eks.cluster_endpoint
+}
+
+output "public_subnets" {
+  description = "Public subnet IDs"
+  value       = module.vpc.public_subnets
+}
+
+output "private_subnets" {
+  description = "Private subnet IDs used by EKS"
+  value       = module.vpc.private_subnets
 }
 
 output "region" {
   description = "AWS region"
-  value       = "ap-southeast-1"
+  value       = var.region
 }

@@ -1,78 +1,30 @@
 # EKS MongoDB Operator Demo
 
-Cost-effective EKS cluster with MongoDB Community Operator for learning and development.
+Cost-optimized EKS + MongoDB Community Operator deployments in ap-southeast-1, now with `cdx-` prefix/tag hygiene so both repos can coexist cleanly.
 
-## 🎯 Project Overview
+## Quick workflow
 
-This project demonstrates deploying MongoDB Community Operator on Amazon EKS with:
-- **Cost-optimized infrastructure** (~$0.60/day)
-- **Spot instances** for development workloads
-- **Complete automation** with Terraform
-- **Production-ready patterns** for learning
+| Step | Command |
+| --- | --- |
+| Validate IaC | `just test` |
+| Preview cluster | `just plan` |
+| Apply cluster | `just apply` |
+| Sync kubeconfig | `just kubeconfig` |
+| Deploy addon | `just addons-plan` → `just addons` |
+| Tear down | `cd terraform/addons/ebs-csi && terraform destroy -auto-approve -var-file=dev.tfvars` → `cd terraform/eks-mongodb && terraform destroy -auto-approve -var-file=dev.tfvars` |
 
-## 🚀 Quick Start
+`just addons` still owns `terraform/addons/ebs-csi`, so the CSI driver installs after the cluster is healthy; use the tear-down steps whenever you finish work to keep AWS clean.
 
-```bash
-# 1. Deploy infrastructure
-cd terraform/eks-mongodb
-terraform init && terraform apply
+## Status snapshot (current state: destroyed)
 
-# 2. Configure kubectl
-aws eks update-kubeconfig --region ap-southeast-1 --name mongodb-demo-eks
+- Cluster: `dev-mongodb-eks` (destroyed; re-run `just apply`/`just addons` to rebuild).  
+- VPC: `cdx-dev-mongodb-vpc` (destroyed; tags/provisioner defined in `terraform/eks-mongodb`).  
+- Add-on: `aws-ebs-csi-driver` (destroyed; `just addons` reinstalls it with a 30 min create timeout).  
+- MongoDB sample: `mongodb-simple` (namespace `mongodb`) was deployed during testing but its PVC failed because the managed nodes could not tag volumes even though the role has the `ec2:CreateVolume/CreateTags` policy. Also the init images require access to Quay (401); mirror or supply credentials before redeploying.
 
-# 3. Install MongoDB Operator
-kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/config/crd/bases/mongodbcommunity.mongodb.com_mongodbcommunity.yaml
-kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/config/manager/manager.yaml
+## Documentation
 
-# 4. Deploy MongoDB
-kubectl apply -f kubernetes/mongodb/mongodb-simple-working.yaml
-```
+- `AGENTS.md`: operating notes, prefix/tag guidance, and destroy workflow for Codex.  
+- `TASKS.md`: runbook for the dev public VPC/EKS build, add-on sequencing, and the private-only/Nexus plan.
 
-## 📁 Project Structure
-
-```
-├── terraform/eks-mongodb/     # Infrastructure as Code
-├── kubernetes/mongodb/        # MongoDB manifests
-├── docs/                     # Comprehensive guides
-└── scripts/                  # Utility scripts
-```
-
-## 📚 Documentation
-
-- **[Complete Setup Guide](docs/complete-setup-guide.md)** - Full deployment walkthrough
-- **[MongoDB Operator Guide](docs/mongodb-operator-guide.md)** - Learning exercises
-- **[PROJECT.md](PROJECT.md)** - Current status and progress
-
-## 💰 Cost Optimization
-
-- **EKS Control Plane**: $0.10/hour ($2.40/day)
-- **Worker Nodes**: 2x t3.small spot (~$0.60/day total)
-- **Storage**: Minimal EBS usage
-- **Total**: ~$3.00/day for learning environment
-
-## 🔧 Key Features
-
-- ✅ **Infrastructure-only Terraform** (no Kubernetes resource conflicts)
-- ✅ **EBS CSI Driver** with proper IRSA configuration
-- ✅ **MongoDB Community Operator** with RBAC
-- ✅ **Spot instances** for cost optimization
-- ✅ **Complete cleanup** with `terraform destroy`
-
-## 🎓 Learning Outcomes
-
-- EKS cluster management and access control
-- Kubernetes operators and CRDs
-- MongoDB deployment patterns
-- Infrastructure automation with Terraform
-- Cost optimization strategies
-
-## 📊 Status
-
-**Current**: Infrastructure destroyed, ready for redeployment
-**Last Tested**: 2025-09-05
-**Deployment Time**: ~15 minutes total
-
----
-
-**AWS Account**: 273828039634 (dev)  
-**Region**: ap-southeast-1
+Re-run the quick workflow when you next want the cluster. Record any new fallback steps (e.g., private registry pull secrets or SSM patch routines) in `TASKS.md` before shifting the configuration into production.
