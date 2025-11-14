@@ -1,0 +1,10 @@
+environment                          = "dev"
+network_profile                      = "public"
+region                               = "ap-southeast-1"
+aws_profile                          = "dev"
+availability_zones                   = ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
+vpc_cidr                             = "10.42.0.0/16"
+public_subnets                       = ["10.42.101.0/24", "10.42.102.0/24", "10.42.103.0/24"]
+private_subnets                      = ["10.42.1.0/24", "10.42.2.0/24", "10.42.3.0/24"]
+enable_nat_gateway                   = true
+cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
